@@ -1,0 +1,26 @@
+/** PREPIFY design tokens — light cool-indigo system. */
+export const colors = {
+  bg: '#F4F6FB',
+  surface: '#FFFFFF',
+  surfaceAlt: '#EEF1F8',
+  surfaceRaised: '#E7EBFA',
+  border: 'rgba(32, 35, 64, 0.08)',
+  borderStrong: 'rgba(32, 35, 64, 0.15)',
+  violet: '#4338CA',
+  violetSoft: 'rgba(67, 56, 202, 0.12)',
+  blue: '#2563EB',
+  blueSoft: 'rgba(37, 99, 235, 0.11)',
+  emerald: '#15803D',
+  emeraldSoft: 'rgba(21, 128, 61, 0.11)',
+  amber: '#B45309',
+  amberSoft: 'rgba(180, 83, 9, 0.12)',
+  premiumGold: '#9A6B1E',
+  premiumGoldSoft: 'rgba(154, 107, 30, 0.12)',
+  error: '#B91C1C',
+  errorSoft: 'rgba(185, 28, 28, 0.11)',
+  text: '#1A1D2E',
+  textDim: '#5B6178',
+  textFaint: '#8A90A6',
+  white: '#FFFFFF',
+};
+export const heroGradient = `linear-gradient(135deg, ${colors.violet}, ${colors.blue})`;
