@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import { colors } from '../../../core/theme/colors';
@@ -7,7 +6,7 @@ import AppCard from '../../../shared/components/AppCard';
 import AppButton from '../../../shared/components/AppButton';
 import PremiumBadge from '../../premium/PremiumBadge';
 import { ContentTier, tierOf, isContentAccessible } from '../../premium/contentAccess';
-import { loadEntitlements } from '../../premium/premiumRegistry';
+import { useEntitlements } from '../../premium/EntitlementContext';
 import { findWritingTaskById } from '../data/writingTaskCatalog';
 import { writingTaskBadge } from '../models/writingModels';
 
@@ -15,11 +14,8 @@ export default function WritingPreviewScreen() {
   const { promptId } = useParams();
   const navigate = useNavigate();
   const task = findWritingTaskById(promptId);
-  const [entitlements, setEntitlements] = useState({ isPro: false });
+  const entitlements = useEntitlements();
 
-  useEffect(() => {
-    setEntitlements(loadEntitlements());
-  }, []);
 
   if (!task) {
     return (

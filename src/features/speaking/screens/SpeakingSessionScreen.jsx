@@ -5,8 +5,9 @@ import { colors } from '../../../core/theme/colors';
 import { textStyles } from '../../../core/theme/textStyles';
 import AppCard from '../../../shared/components/AppCard';
 import AppButton from '../../../shared/components/AppButton';
-import { isContentAccessible } from '../../premium/contentAccess';
-import { loadEntitlements } from '../../premium/premiumRegistry';
+import { isContentAccessible, isPremiumContent } from '../../premium/contentAccess';
+import { useEntitlements } from '../../premium/EntitlementContext';
+import { LoadingState } from '../../../shared/components/StateViews';
 import { findSpeakingSessionById } from '../data/speakingSessionCatalog';
 import { saveSpeakingAttempt } from '../data/speakingRepository';
 import { speakingPartLabel, speakingPartAccent } from '../models/speakingModels';
@@ -19,11 +20,12 @@ export default function SpeakingSessionScreen() {
   const [index, setIndex] = useState(0);
   const [startedAt] = useState(() => new Date());
 
+  const entitlements = useEntitlements();
+  const accessPending = !!session && isPremiumContent(session.id) && entitlements.loading;
+  const locked = !!session && !accessPending && !isContentAccessible(session.id, entitlements);
   useEffect(() => {
-    if (session && !isContentAccessible(session.id, loadEntitlements())) {
-      navigate('/pro', { replace: true });
-    }
-  }, [session, navigate]);
+    if (locked) navigate('/pro', { replace: true });
+  }, [locked, navigate]);
 
   if (!session) {
     return (
@@ -32,6 +34,8 @@ export default function SpeakingSessionScreen() {
       </div>
     );
   }
+
+  if (accessPending || locked) return <LoadingState label="Checking your access…" />;
 
   const accent = speakingPartAccent(session.part);
   const question = session.questions[index];

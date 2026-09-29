@@ -609,16 +609,243 @@ and independently verified:
 5. After the first deploy, manually verify: a direct URL to a nested route (e.g. `.../practice/reading`) loads instead of 404ing, and that `.../prepify.zip` downloads correctly
 6. This response does not constitute deployment — no push, deploy, or Vercel action was performed or authorized here
 
+*(Correction: the note that used to sit here claimed `vercel.json` did not
+exist. That was accurate when first written, but Phase 21 above added it —
+this trailing note simply hadn't been updated since. Confirmed directly this
+turn: `vercel.json` exists and contains the SPA-fallback rewrite. Removing
+the stale claim rather than leaving it to contradict Phase 21.)*
+
+## Phase 22 — Server-side Premium entitlement system (Vercel + Upstash Redis) (DONE, pending real deployment)
+
+**Real backend added, replacing the client-only entitlement flag entirely.**
+Before this phase, `isPro` lived in `localStorage` and any user could set it
+to `true` from their own browser console — inspected and confirmed at the
+start of this phase, not assumed. It now lives only in Redis, decided only by
+serverless functions, behind an admin secret that never enters the bundle.
+
+### What was inspected first
+Every consumer of the old `loadEntitlements()`/`isContentAccessible` pair (9
+screens: Listening/Writing/Speaking × Hub/Preview/Session, `ProfileScreen`,
+`ProUpgradeScreen`), `contentAccess.js`'s `isFeatureUnlocked` wiring,
+`App.jsx`'s route structure, and confirmed no `.env`/`.gitignore` secret rules
+or test tooling existed yet in this project before adding any.
+
+### Entitlement model (`server/entitlement.js`)
+Plans: `monthly`, `lifetime`, `revoked`. Pure, deterministic functions only —
+no I/O, no clock reads (callers pass `now`) — so every rule is directly
+unit-tested rather than inferred:
+- `deriveAccess` is the **only** place access is decided: lifetime never
+  expires (confirmed even against a corrupted past `expiresAt`); monthly is
+  checked against `now` with an inclusive cutoff (expires *exactly at*
+  `expiresAt`, not one tick after); any unknown or revoked plan is never PRO.
+- `applyGrant`: a repeat lifetime grant is a safe no-op (keeps the original
+  `grantedAt`); monthly on an active monthly requires `extend: true` to
+  renew; monthly can **never** silently downgrade an active lifetime
+  (`already_lifetime` error); a bounded history array (`MAX_HISTORY = 20`)
+  is kept per customer for audit purposes.
+- `applyRevoke`: keeps the record (with `previousPlan` + `revokedAt`) rather
+  than deleting it; idempotent; refuses to revoke an unknown customer
+  (`not_found`).
+- `validateGrantBody`/`validateRevokeBody`: strict allow-lists of body keys
+  (an unknown field like a typo'd `expires_at` is rejected outright, not
+  silently ignored), a 400-day cap on how far in the future `expiresAt` can
+  be set, and notes are sanitized via a **code-point loop**
+  (`stripControlCharacters`), not a regex — oxlint's `no-control-regex` rule
+  flagged the original regex approach and this was the real fix, not a
+  suppression.
+
+### Storage (`server/redisStore.js`)
+A hand-rolled Upstash REST client — **no new npm dependency**. Accepts either
+Upstash's own env var names or the `KV_REST_API_URL`/`KV_REST_API_TOKEN`
+names Vercel's own Upstash integration injects. Rejects non-HTTPS URLs except
+`http://` to loopback (for local testing only). Errors are a `StoreError`
+whose message is confirmed, by test, to never contain the credential.
+
+### HTTP layer (`server/http.js`)
+Constant-time secret comparison (`safeEqual`, via SHA-256 + `timingSafeEqual`,
+so it leaks neither a length difference nor throws on one). IP addresses are
+hashed before use as a rate-limit bucket key — raw IPs are never stored.
+**A real bug was found and fixed here**: the original rate-limit counter
+(`INCR` then `EXPIRE`) could strand a key with no expiry forever if the
+`EXPIRE` call failed after the `INCR` succeeded — a rare but real
+availability bug (an address could get throttled permanently). Fixed by
+creating the counter's first hit with an atomic `SET key '1' NX EX <seconds>`
+instead, so the TTL is never a separate, failure-prone step. A dedicated
+`tests/rate-limit.test.js` proves the exact wire-command sequence and the
+no-stranded-key property directly, not just indirectly through the
+rate-limit tests that already existed.
+
+### Handlers and endpoints (`server/handlers.js`, `api/*.js`)
+- `POST /api/admin/grant`, `POST /api/admin/revoke`: method check → 32+
+  character `ADMIN_SECRET` presence check (a missing or short secret returns
+  `503 admin_not_configured` rather than ever running unauthenticated) →
+  per-IP brute-force throttle (10 failures / 15 minutes) → constant-time
+  Bearer check (`401` + bumps the fail counter) → storage-configured check →
+  body validation. A per-customer advisory lock (`SET NX`, 10s TTL, always
+  released in a `finally`) prevents two concurrent grants/revokes for the
+  same customer from racing each other (`409 busy` if held).
+- `GET /api/entitlement`: public, read-only, validates and normalizes the ID,
+  rate-limited (60/min per address, **fails open** if the limiter's own
+  storage call fails — a broken limiter must never block a legitimate
+  lookup), and returns only `{isPro, plan, status, expiresAt}` — confirmed by
+  test that `customerId`, `history`, and any admin `note` never appear in
+  this response. Every response sets `Cache-Control: no-store`.
+
+### Client (`src/features/premium/entitlementApi.js`, `EntitlementContext.jsx`)
+The API client module has **zero imports of React, localStorage, or any app
+code** other than the shared ID validator — confirmed directly, and enforced
+by a static test. `parseEntitlementResponse` strictly validates the server's
+shape and rejects internally-incoherent combinations (e.g. `isPro: true` with
+`status !== 'active'`), which also means it correctly **rejects the HTML page
+Vercel's SPA-fallback rewrite would serve** if `/api/entitlement` were ever
+misconfigured or missing — a real edge case, tested directly, not
+theoretical. `resolveClientAccess` re-checks a monthly plan's expiry against
+the current clock on every use, so a result cached in memory during a
+backend outage cannot keep granting PRO past its real expiry.
+`EntitlementProvider` fetches on mount and on tab re-focus
+(`visibilitychange`), keeps state in memory only, and exposes `restore()` for
+the new restore-access flow — which only ever adopts an entered ID if the
+server confirms it currently has active PRO, never on a failed or negative
+lookup.
+
+### The 9 practice screens + Profile + ProUpgradeScreen (rewired, not rebuilt)
+All 9 screens switched from the old `loadEntitlements()` + local `useState`
+to the new `useEntitlements()` hook. The three **Session** screens
+additionally gate premium content behind `entitlements.loading` — showing a
+"Checking your access…" state instead of briefly flashing content, then
+hiding it, while the network check is in flight. The **Writing** session's
+draft-restore and autosave effects were changed to depend on stable
+`accessPending`/`locked` booleans rather than the entitlement context object
+itself, specifically so a background entitlement re-check (e.g. on tab
+refocus) can never re-trigger draft restoration mid-typing and overwrite what
+the student is writing — a real bug class that direct-string-comparison
+alone wouldn't have caught if the effect had depended on the whole context.
+`ProfileScreen` now shows a real plan line (lifetime / monthly-with-date /
+checking / unavailable / free). `ProUpgradeScreen` now shows the
+server-derived customer ID (not a locally-invented one), an
+unavailable/expired banner when relevant, and a full "Restore access" card.
+
+### Bugs found and fixed during this phase, in order found
+1. Two test-scaffolding bugs (a same-length-token test that accidentally
+   reused the real secret verbatim; `makeApp`'s default parameter for
+   `secret` couldn't represent an explicit `undefined`) — fixed, all 35
+   model+admin tests then passed.
+2. oxlint's `no-control-regex` flagged the note-sanitizing regex — replaced
+   with a real code-point loop (`stripControlCharacters`), not suppressed.
+3. Two weak Upstash-client tests (a vacuous optional-chained call that
+   asserted nothing real, and an under-specified error-payload test)
+   replaced with real assertions that the upstream error text is never
+   echoed back and that a hung request is genuinely aborted by the timeout.
+4. **A real production bug**: the original rate-limit counter's
+   `INCR`-then-`EXPIRE` sequence could strand a TTL-less key forever if the
+   `EXPIRE` call failed after `INCR` succeeded. Fixed with an atomic
+   `SET NX EX` for the first hit (see above); new focused tests added.
+5. Two of the *legacy* `scripts/validate-premium-telegram.mjs` checks were
+   testing the now-retired local API (`setProForTesting`,
+   `loadEntitlements`) and failed correctly once that API was removed —
+   these were genuine test-suite updates needed for the new architecture,
+   not regressions in the app. Rewritten to check the real, current
+   mechanism instead (`deriveAccess` existing server-side, `useEntitlements`
+   used in `ProfileScreen`).
+6. A doc-comment in `premiumRegistry.js` explaining that the customer ID is
+   "not a secret password" tripped that same legacy script's blunt
+   secret-detection regex — a false positive in prose, not a real leak.
+   Reworded the comment to avoid the trigger words entirely.
+7. My own new `tests/security-static.test.js` initially flagged the real
+   customer ID `PRP-MULCK4V0-UTAXS6` appearing in the new
+   `docs/PREMIUM_ENTITLEMENT.md` as a "leaked" ID. On inspection this is
+   correct and expected — that file is developer documentation, not shipped
+   frontend code, and legitimately needs to name the customer it explains
+   how to grant. Fixed by allow-listing that one ID **only** in the
+   project-wide check, while making the separate built-bundle check
+   *stricter* (no exemption at all) — because the real requirement is that
+   this ID must never ship to a browser, not that it can never appear
+   anywhere in the repository.
+
+### Files created
+`shared/customerId.js`, `server/entitlement.js`, `server/redisStore.js`,
+`server/http.js`, `server/handlers.js`, `api/entitlement.js`,
+`api/admin/grant.js`, `api/admin/revoke.js`, `scripts/pro-admin.mjs`,
+`src/features/premium/entitlementApi.js`,
+`src/features/premium/EntitlementContext.jsx`, `.env.example`,
+`docs/PREMIUM_ENTITLEMENT.md`, and 8 test files (`tests/entitlement-model.test.js`,
+`tests/admin-api.test.js`, `tests/entitlement-endpoint.test.js`,
+`tests/upstash-client.test.js`, `tests/client-entitlement.test.js`,
+`tests/integration.test.js`, `tests/security-static.test.js`,
+`tests/rate-limit.test.js`) plus their shared helpers under `tests/helpers/`.
+
+### Files modified
+`src/features/premium/premiumRegistry.js` (rewritten — the local
+`isPro`/`setProForTesting` mechanism removed entirely; kept the pricing
+constants; `loadOrCreateDeviceRefId` now uses `crypto.getRandomValues`
+instead of `Math.random`, and a new `setDeviceRefId` supports the restore
+flow), the 9 practice screens listed above, `ProfileScreen.jsx`,
+`ProUpgradeScreen.jsx`, `App.jsx` (wrapped the authenticated routes in
+`EntitlementProvider`), `.gitignore` (added `.env`, `.env.*`,
+`!.env.example`, `.vercel`), `package.json` (added a real `test` script),
+and 2 checks inside the pre-existing `scripts/validate-premium-telegram.mjs`
+(updated to test the current architecture — see bug #5 above).
+
+### Verification actually run
+- `npm test` (`node --test "tests/*.test.js"`) → **80/80 passing**, across
+  model rules, admin auth/throttle/lock/outage handling, the public
+  endpoint, the real Upstash wire protocol (including every outage mode:
+  HTTP 500, garbage body, an `{error}` payload, connection refused, and a
+  genuinely-timed-out hang), the client module (including rejecting the SPA
+  fallback's HTML), full HTTP round-trips (persistence across a simulated
+  cold start, monthly expiry + revocation, backend-outage-then-recovery, and
+  the admin CLI via real subprocesses), 12 static security checks (mutated
+  and confirmed to actually catch 5 different injected real faults — a
+  leaked customer ID, a hardcoded `isPro: true`, a removed `.gitignore` rule,
+  an extra API file, and a leaked `ADMIN_SECRET`-mentioning line — each one
+  individually, then all files restored and verified byte-identical via
+  `cmp`), and the rate-limit fix.
+- All **13 pre-existing legacy validation scripts** re-run → **zero
+  regressions** (the 2 real, expected failures in
+  `validate-premium-telegram.mjs`, caused by testing a retired API, were
+  fixed to test the current one — not silenced).
+- `npm run build` → succeeded, 2010 modules (2 fewer JSX changes net;
+  unused `useEffect`/`useState` imports removed from the 3 `*PreviewScreen`
+  files after the refactor), ~609–1.5s.
+- `npm run lint` (oxlint) → **0 errors, 19 warnings** (down from 22 — 3 fewer
+  benign warnings after the Preview-screen cleanup; no new warning
+  categories after the control-regex fix above).
+
+### What this phase does and does not solve (stated plainly)
+**Solved**: the client can no longer grant itself PRO. `isPro` now requires a
+server round-trip to Redis, gated by an admin secret that never leaves
+Vercel's environment. Lifetime, monthly, and revoked are all real, tested
+states with real expiry semantics.
+
+**Not solved, and explicitly documented in `docs/PREMIUM_ENTITLEMENT.md`**:
+Premium session/prompt content is still bundled into the public JavaScript
+in plain, readable form — re-confirmed directly this turn (`grep` for a
+known Premium listening session ID and a known Premium writing prompt ID
+against the freshly-built `dist/assets/*.js` still finds both). This backend
+change secures the *entitlement check*; it does not hide the content itself.
+That would require serving Premium content from the API instead of bundling
+it, which is a separate, larger change not attempted here.
+
+### The requested grant: PRP-MULCK4V0-UTAXS6
+**Not granted. Cannot be granted from this sandbox.** There is no deployed
+Vercel project and no real Upstash database reachable from here — the admin
+CLI (`scripts/pro-admin.mjs`) needs a live `PREPIFY_URL` to call, and none
+exists in this environment. The exact remaining steps (deploy with the three
+env vars set, then run one `pro-admin.mjs grant` command, then verify with
+`status`) are written out in `docs/PREMIUM_ENTITLEMENT.md`. This must not be
+described as done until that real `HTTP 200` and a verified `isPro: true`
+actually happen outside this sandbox.
+
 ## Exact next step
-With every planned feature phase complete, the remaining work is
-production-readiness auditing rather than new features: a full
-route/navigation audit for dead links, a storage/persistence audit
-across all `prepify.*` keys for fresh-vs-existing-user safety, a
-responsive/accessibility pass at mobile/tablet/desktop widths, a
-security/honesty sweep for any accidentally-committed secrets or
-fabricated claims, and GitHub/Vercel deployment preparation. **Checked
-directly this turn**: `vercel.json` does **not** currently exist in this
-project — it is needed before any real Vercel deployment, since without
-an SPA-fallback rewrite, refreshing on any non-root route (e.g.
-`/practice/reading`) would 404 on Vercel's static hosting. This is a
-real, outstanding gap, not yet addressed.
+The Premium entitlement backend is complete and independently verified, but
+**not yet deployed** — that is the immediate next action for whoever has
+Vercel/Upstash access, not a further coding task. Once deployed: (1) run the
+one `pro-admin.mjs grant --plan lifetime` command for
+`PRP-MULCK4V0-UTAXS6` and verify it with `status`; (2) confirm the app's own
+"Restore access" flow works end-to-end against the real deployment, since
+only unit/integration tests against a fake Upstash have exercised it so far.
+Beyond that, the same production-readiness items noted after Phase 21 still
+stand: a route/navigation audit for dead links, a responsive/accessibility
+pass at real widths, and — the one concrete, scoped follow-up this phase
+surfaced — deciding whether to invest in moving Premium content out of the
+public bundle, now that the entitlement check guarding it is finally real.

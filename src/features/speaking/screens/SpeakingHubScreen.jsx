@@ -7,7 +7,7 @@ import AppCard from '../../../shared/components/AppCard';
 import PracticeFilterChip from '../../../shared/components/PracticeFilterChip';
 import PremiumBadge from '../../premium/PremiumBadge';
 import { ContentTier, tierOf, isContentAccessible } from '../../premium/contentAccess';
-import { loadEntitlements } from '../../premium/premiumRegistry';
+import { useEntitlements } from '../../premium/EntitlementContext';
 import { speakingSessionCatalog } from '../data/speakingSessionCatalog';
 import { loadAttemptedSessionIds } from '../data/speakingRepository';
 import { SpeakingPart, speakingPartLabel, speakingPartIcon, speakingPartAccent } from '../models/speakingModels';
@@ -18,11 +18,10 @@ export default function SpeakingHubScreen() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState(FILTERS.ALL);
   const [attemptedIds, setAttemptedIds] = useState(new Set());
-  const [entitlements, setEntitlements] = useState({ isPro: false });
+  const entitlements = useEntitlements();
 
   useEffect(() => {
     setAttemptedIds(loadAttemptedSessionIds());
-    setEntitlements(loadEntitlements());
   }, []);
 
   const counts = {

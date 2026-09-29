@@ -5,8 +5,9 @@ import { colors } from '../../../core/theme/colors';
 import { textStyles } from '../../../core/theme/textStyles';
 import AppCard from '../../../shared/components/AppCard';
 import AppButton from '../../../shared/components/AppButton';
-import { isContentAccessible } from '../../premium/contentAccess';
-import { loadEntitlements } from '../../premium/premiumRegistry';
+import { isContentAccessible, isPremiumContent } from '../../premium/contentAccess';
+import { useEntitlements } from '../../premium/EntitlementContext';
+import { LoadingState } from '../../../shared/components/StateViews';
 import { findWritingTaskById } from '../data/writingTaskCatalog';
 import { findDraftForTask, saveResponse } from '../data/writingRepository';
 
@@ -25,21 +26,28 @@ export default function WritingSessionScreen() {
   const [startedAt] = useState(() => new Date());
   const [savedAt, setSavedAt] = useState(null);
 
+  // Gate on stable booleans (not the context object) so a background
+  // entitlement refresh can never re-run the draft restore and overwrite text
+  // the user is typing. Free prompts never wait on the entitlement check.
+  const entitlements = useEntitlements();
+  const accessPending = !!task && isPremiumContent(task.id) && entitlements.loading;
+  const locked = !!task && !accessPending && !isContentAccessible(task.id, entitlements);
   useEffect(() => {
-    if (task && !isContentAccessible(task.id, loadEntitlements())) {
-      navigate('/pro', { replace: true });
-      return;
-    }
-    const draft = task ? findDraftForTask(task.id) : null;
+    if (locked) navigate('/pro', { replace: true });
+  }, [locked, navigate]);
+
+  useEffect(() => {
+    if (!task || accessPending || locked) return;
+    const draft = findDraftForTask(task.id);
     if (draft) setText(draft.text);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task]);
+  }, [task, accessPending, locked]);
 
   const wordCount = useMemo(() => countWords(text), [text]);
   const meetsMinimum = task ? wordCount >= task.minimumWordCount : false;
 
   useEffect(() => {
-    if (!task) return;
+    if (!task || accessPending || locked) return;
     const handle = setTimeout(() => {
       saveResponse({
         id: responseId,
@@ -57,7 +65,7 @@ export default function WritingSessionScreen() {
       setSavedAt(new Date());
     }, 1200);
     return () => clearTimeout(handle);
-  }, [text, task, responseId, wordCount, startedAt]);
+  }, [text, task, responseId, wordCount, startedAt, accessPending, locked]);
 
   if (!task) {
     return (
@@ -66,6 +74,8 @@ export default function WritingSessionScreen() {
       </div>
     );
   }
+
+  if (accessPending || locked) return <LoadingState label="Checking your access…" />;
 
   const handleComplete = () => {
     const now = new Date();

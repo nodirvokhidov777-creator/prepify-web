@@ -14,7 +14,9 @@ import PrepifyDownloadCard from './PrepifyDownloadCard';
  * replaced with an accurate equivalent rather than copied verbatim.
  * Everything else is unchanged from the source.
  */
-const privacyBody = `PREPIFY stores your practice data — including Reading, Listening, Writing, and Speaking activity, Vocabulary and Grammar progress, goals, achievements, and preferences — locally in this browser. This data is not currently transmitted to, or processed by, any cloud server.
+const privacyBody = `PREPIFY stores your practice data — including Reading, Listening, Writing, and Speaking activity, Vocabulary and Grammar progress, goals, achievements, and preferences — locally in this browser. This practice data is not transmitted to, or processed by, any server.
+
+To check whether you have PREPIFY PRO, the app sends one thing to PREPIFY's server each time it loads: your PREPIFY ID, a random, anonymous identifier generated in this browser. For customers, the server keeps that ID together with the plan (monthly or lifetime), the date access was granted, and any expiry date. It does not receive your name, email address, or any practice data. To limit abuse, a hashed form of your network address is used to count requests for a few minutes and then discarded. If you buy PRO through Telegram, the person you chat with can see the ID you send and your Telegram account.
 
 Speaking practice in this build does not record or store any audio — no recording capability exists yet, so there is nothing to store beyond your completion of each session.
 

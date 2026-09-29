@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, VolumeX } from 'lucide-react';
 import { colors } from '../../../core/theme/colors';
@@ -7,18 +6,15 @@ import AppCard from '../../../shared/components/AppCard';
 import AppButton from '../../../shared/components/AppButton';
 import PremiumBadge from '../../premium/PremiumBadge';
 import { ContentTier, tierOf, isContentAccessible } from '../../premium/contentAccess';
-import { loadEntitlements } from '../../premium/premiumRegistry';
+import { useEntitlements } from '../../premium/EntitlementContext';
 import { findListeningSessionById, LISTENING_AUDIO_AVAILABLE } from '../data/listeningSessionsCatalog';
 
 export default function ListeningPreviewScreen() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const session = findListeningSessionById(sessionId);
-  const [entitlements, setEntitlements] = useState({ isPro: false });
+  const entitlements = useEntitlements();
 
-  useEffect(() => {
-    setEntitlements(loadEntitlements());
-  }, []);
 
   if (!session) {
     return (

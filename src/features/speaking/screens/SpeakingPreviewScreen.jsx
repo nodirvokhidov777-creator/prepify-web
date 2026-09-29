@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, MicOff } from 'lucide-react';
 import { colors } from '../../../core/theme/colors';
@@ -7,7 +6,7 @@ import AppCard from '../../../shared/components/AppCard';
 import AppButton from '../../../shared/components/AppButton';
 import PremiumBadge from '../../premium/PremiumBadge';
 import { ContentTier, tierOf, isContentAccessible } from '../../premium/contentAccess';
-import { loadEntitlements } from '../../premium/premiumRegistry';
+import { useEntitlements } from '../../premium/EntitlementContext';
 import { findSpeakingSessionById } from '../data/speakingSessionCatalog';
 import { speakingPartLabel, speakingPartAccent } from '../models/speakingModels';
 
@@ -15,11 +14,8 @@ export default function SpeakingPreviewScreen() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const session = findSpeakingSessionById(sessionId);
-  const [entitlements, setEntitlements] = useState({ isPro: false });
+  const entitlements = useEntitlements();
 
-  useEffect(() => {
-    setEntitlements(loadEntitlements());
-  }, []);
 
   if (!session) {
     return (

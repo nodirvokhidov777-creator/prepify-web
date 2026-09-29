@@ -7,8 +7,9 @@ import { StorageService } from '../../../core/storage/storageService';
 import { useAppState } from '../../../state/AppStateContext';
 import AppCard from '../../../shared/components/AppCard';
 import AppButton from '../../../shared/components/AppButton';
-import { isContentAccessible } from '../../premium/contentAccess';
-import { loadEntitlements } from '../../premium/premiumRegistry';
+import { isContentAccessible, isPremiumContent } from '../../premium/contentAccess';
+import { useEntitlements } from '../../premium/EntitlementContext';
+import { LoadingState } from '../../../shared/components/StateViews';
 import { findListeningSessionById, LISTENING_AUDIO_AVAILABLE } from '../data/listeningSessionsCatalog';
 import { computeListeningResult } from '../engines/listeningResult';
 import { isAnswerCorrect } from '../models/listeningModels';
@@ -21,14 +22,15 @@ export default function ListeningSessionScreen() {
   const session = findListeningSessionById(sessionId);
   const [answers, setAnswers] = useState({});
 
-  // Defense in depth: even if someone navigates directly to this URL for
-  // a Premium session without entitlement, redirect to the Pro screen
-  // rather than silently opening locked content.
+  // Defense in depth for direct URLs: entitlement comes from the server, so
+  // premium content is neither shown nor treated as unlocked until the check
+  // has finished. Free content never waits on it.
+  const entitlements = useEntitlements();
+  const accessPending = !!session && isPremiumContent(session.id) && entitlements.loading;
+  const locked = !!session && !accessPending && !isContentAccessible(session.id, entitlements);
   useEffect(() => {
-    if (session && !isContentAccessible(session.id, loadEntitlements())) {
-      navigate('/pro', { replace: true });
-    }
-  }, [session, navigate]);
+    if (locked) navigate('/pro', { replace: true });
+  }, [locked, navigate]);
 
   if (!session) {
     return (
@@ -37,6 +39,8 @@ export default function ListeningSessionScreen() {
       </div>
     );
   }
+
+  if (accessPending || locked) return <LoadingState label="Checking your access…" />;
 
   const answeredCount = Object.keys(answers).filter((k) => answers[k] != null && answers[k] !== '').length;
 

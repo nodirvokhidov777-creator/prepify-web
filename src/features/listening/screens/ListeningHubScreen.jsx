@@ -7,7 +7,7 @@ import AppCard from '../../../shared/components/AppCard';
 import PracticeFilterChip from '../../../shared/components/PracticeFilterChip';
 import PremiumBadge from '../../premium/PremiumBadge';
 import { ContentTier, tierOf, isContentAccessible } from '../../premium/contentAccess';
-import { loadEntitlements } from '../../premium/premiumRegistry';
+import { useEntitlements } from '../../premium/EntitlementContext';
 import { listeningSessionsCatalog } from '../data/listeningSessionsCatalog';
 import { loadAttemptedSessionIds } from '../data/listeningRepository';
 
@@ -17,11 +17,10 @@ export default function ListeningHubScreen() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState(FILTERS.ALL);
   const [attemptedIds, setAttemptedIds] = useState(new Set());
-  const [entitlements, setEntitlements] = useState({ isPro: false });
+  const entitlements = useEntitlements();
 
   useEffect(() => {
     setAttemptedIds(loadAttemptedSessionIds());
-    setEntitlements(loadEntitlements());
   }, []);
 
   const basicCount = listeningSessionsCatalog.filter((s) => tierOf(s.id) === ContentTier.BASIC).length;

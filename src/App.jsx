@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppStateProvider, useAppState, AppPhase } from './state/AppStateContext';
+import { EntitlementProvider } from './features/premium/EntitlementContext';
 import { colors } from './core/theme/colors';
 import SplashScreen from './features/splash/SplashScreen';
 import OnboardingScreen from './features/onboarding/OnboardingScreen';
@@ -62,6 +63,7 @@ function RootRouter() {
   }
 
   return (
+    <EntitlementProvider>
     <Routes>
       <Route element={<HomeShell />}>
         <Route path="/today" element={<TodayScreen />} />
@@ -114,6 +116,7 @@ function RootRouter() {
 
       <Route path="*" element={<Navigate to="/today" replace />} />
     </Routes>
+    </EntitlementProvider>
   );
 }
 

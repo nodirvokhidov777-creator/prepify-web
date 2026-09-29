@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Secrets and local platform state — never commit these
+.env
+.env.*
+!.env.example
+.vercel

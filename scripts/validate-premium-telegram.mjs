@@ -41,7 +41,13 @@ check('ProUpgradeScreen never calls setProForTesting itself (upgrading never sel
 
 const registrySource = readSource('../src/features/premium/premiumRegistry.js');
 check('no API keys, tokens, or admin passwords are hardcoded in the Premium registry', !/api[_-]?key|secret|password|token\s*[:=]\s*['"][a-zA-Z0-9]{8,}/i.test(registrySource));
-check('setProForTesting is documented as a local/dev-only mechanism, not a real admin panel', /development\/testing only|dev-only/i.test(registrySource) || /never be exposed as a\s*\n?\s*user-reachable/i.test(registrySource));
+// premiumRegistry.js no longer has a local "setProForTesting" escape hatch at
+// all — PRO is decided exclusively by the server now (see server/entitlement.js
+// and src/features/premium/EntitlementContext.jsx). Confirm that upgrade
+// directly rather than checking for a comment about a mechanism that no
+// longer exists.
+check('premiumRegistry.js contains no local isPro-granting mechanism of any kind', !/setProForTesting|isPro\s*[:=]\s*true/.test(registrySource));
+check('the real server-side entitlement model exists and is the single source of truth', readSource('../server/entitlement.js').includes('export function deriveAccess'));
 
 // setProForTesting must not be reachable from any user-facing screen.
 import { readdirSync, statSync } from 'node:fs';
@@ -63,8 +69,10 @@ const contentAccessSource = readSource('../src/features/premium/contentAccess.js
 check('contentAccess.js still routes through isFeatureUnlocked (entitlement system not duplicated)', /isFeatureUnlocked/.test(contentAccessSource));
 
 // ---- Profile shows real Premium status, not a hardcoded label ----
+// ProfileScreen was upgraded from the old localStorage-only loadEntitlements()
+// to the server-backed useEntitlements() hook; check for the current API.
 const profileSource = readSource('../src/features/profile/ProfileScreen.jsx');
-check('ProfileScreen reads real entitlements via loadEntitlements (not a hardcoded status)', /loadEntitlements/.test(profileSource));
+check('ProfileScreen reads real entitlements via the server-backed useEntitlements hook (not a hardcoded status)', /useEntitlements/.test(profileSource));
 
 // ---- Pricing: single source of truth, no invented plans/discounts ----
 check('a single PREMIUM_MONTHLY_PRICE_DISPLAY constant exists in the Premium registry', /PREMIUM_MONTHLY_PRICE_DISPLAY\s*=\s*'\$4\.99\/month'/.test(registrySource));

@@ -1,20 +1,25 @@
-import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Target, Trophy, Calendar, TrendingUp, Compass, Settings, BadgeCheck, Star } from 'lucide-react';
 import { colors } from '../../core/theme/colors';
 import { textStyles } from '../../core/theme/textStyles';
 import { useAppState } from '../../state/AppStateContext';
 import AppCard from '../../shared/components/AppCard';
-import { loadEntitlements } from '../premium/premiumRegistry';
+import { useEntitlements } from '../premium/EntitlementContext';
 
 export default function ProfileScreen() {
   const { profile, resetAll } = useAppState();
   const navigate = useNavigate();
-  const [isPro, setIsPro] = useState(false);
+  const { isPro, plan, expiresAt, loading, unavailable } = useEntitlements();
 
-  useEffect(() => {
-    setIsPro(loadEntitlements().isPro);
-  }, []);
+  const planLine = isPro
+    ? plan === 'lifetime'
+      ? 'Lifetime access — all Premium features unlocked'
+      : `Monthly PRO — active until ${new Date(expiresAt).toLocaleDateString()}`
+    : loading
+      ? 'Checking your plan…'
+      : unavailable
+        ? "Couldn't verify your plan right now"
+        : 'Upgrade for full access';
 
   const handleReset = () => {
     if (window.confirm('This permanently deletes all your data and returns you to onboarding. Continue?')) resetAll();
@@ -41,7 +46,7 @@ export default function ProfileScreen() {
             <div style={{ flex: 1 }}>
               <span style={textStyles.cardTitle(isPro ? colors.premiumGold : colors.text)}>{isPro ? 'PREPIFY PRO' : 'Free Plan'}</span>
               <div style={{ height: 2 }} />
-              <span style={textStyles.meta()}>{isPro ? 'All Premium features unlocked' : 'Upgrade for full access'}</span>
+              <span style={textStyles.meta()}>{planLine}</span>
             </div>
             {!isPro ? <ChevronRight size={16} color={colors.textFaint} /> : null}
           </div>

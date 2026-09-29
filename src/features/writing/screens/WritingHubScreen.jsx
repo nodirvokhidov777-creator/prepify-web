@@ -7,7 +7,7 @@ import AppCard from '../../../shared/components/AppCard';
 import PracticeFilterChip from '../../../shared/components/PracticeFilterChip';
 import PremiumBadge from '../../premium/PremiumBadge';
 import { ContentTier, tierOf, isContentAccessible } from '../../premium/contentAccess';
-import { loadEntitlements } from '../../premium/premiumRegistry';
+import { useEntitlements } from '../../premium/EntitlementContext';
 import { writingTaskCatalog } from '../data/writingTaskCatalog';
 import { loadAttemptedTaskIds } from '../data/writingRepository';
 import { WritingTaskType, writingTaskBadge } from '../models/writingModels';
@@ -22,11 +22,10 @@ export default function WritingHubScreen() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState(FILTERS.ALL);
   const [attemptedIds, setAttemptedIds] = useState(new Set());
-  const [entitlements, setEntitlements] = useState({ isPro: false });
+  const entitlements = useEntitlements();
 
   useEffect(() => {
     setAttemptedIds(loadAttemptedTaskIds());
-    setEntitlements(loadEntitlements());
   }, []);
 
   const task1Count = writingTaskCatalog.filter((t) => t.taskType !== WritingTaskType.ESSAY_TASK2).length;
